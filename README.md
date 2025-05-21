@@ -143,4 +143,3 @@ The backend has a configuration file at `backend/config.js` that defines the hos
 In the AWS deployment:
 - The frontend is configured to communicate with the backend service using service discovery
 - Environment variables are injected into container definitions to handle proper communication
-
