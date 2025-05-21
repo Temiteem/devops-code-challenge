@@ -1,0 +1,82 @@
+// filepath: /d/repos/mithilesh/feather/devops-code-challenge/jenkins/build-and-push/Jenkinsfile.backend
+pipeline {
+    agent any
+    environment {
+        IMAGE_TAG           = "${env.BUILD_NUMBER}"
+        // Load parameters from credentials binding
+        PROJECT_ENV = credentials('PROJECT_ENV')
+    }
+
+    stages {
+        // Stage to load parameters from credentials file
+        stage('Load Parameters') {
+            steps {
+                script {
+                    echo "Loading parameters from PROJECT_ENV credentials file"
+                    
+                    // Parse the credentials file
+                    def paramsContent = readFile file: env.PROJECT_ENV
+                    def paramsMap = [:]
+                    
+                    paramsContent.split('\n').each { line ->
+                        def keyValue = line.split('=', 2)
+                        if (keyValue.length == 2) {
+                            def key = keyValue[0].trim()
+                            def value = keyValue[1].trim()
+                            paramsMap[key] = value
+                        }
+                    }
+                    
+                    // Set required parameters from credentials file
+                    env.AWS_ACCOUNT_ID = paramsMap.AWS_ACCOUNT_ID
+                    env.AWS_DEFAULT_REGION = paramsMap.AWS_REGION ?: 'us-east-1'
+                    env.IMAGE_REPO_NAME = paramsMap.BACKEND_ECR_REPO ?: 'backend'
+                    env.REPOSITORY_URI = "${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_DEFAULT_REGION}.amazonaws.com/${env.IMAGE_REPO_NAME}"
+                    
+                    echo "Loaded parameters from credentials file"
+                    echo "AWS_ACCOUNT_ID: ${env.AWS_ACCOUNT_ID}"
+                    echo "AWS_DEFAULT_REGION: ${env.AWS_DEFAULT_REGION}"
+                    echo "IMAGE_REPO_NAME: ${env.IMAGE_REPO_NAME}"
+                    echo "REPOSITORY_URI: ${env.REPOSITORY_URI}"
+                    echo "IMAGE_TAG: ${env.IMAGE_TAG}"
+                }
+            }
+        }
+        
+        stage('Logging into AWS ECR') {
+            steps {
+                script {
+                    sh "aws ecr get-login-password --region ${env.AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${env.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_DEFAULT_REGION}.amazonaws.com"
+                }
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                dir('backend') {
+                    script {
+                        sh "docker build -t ${env.IMAGE_REPO_NAME}:${env.IMAGE_TAG} ."
+                    }
+                }
+            }
+        }
+
+        // Stage to push the Docker image to ECR for latest and build number tags
+        stage('Pushing to ECR') {
+            steps {
+                script {
+                    sh "docker tag ${env.IMAGE_REPO_NAME}:${env.IMAGE_TAG} ${env.REPOSITORY_URI}:${env.IMAGE_TAG}"
+                    sh "docker tag ${env.IMAGE_REPO_NAME}:${env.IMAGE_TAG} ${env.REPOSITORY_URI}:latest"
+                    sh "docker push ${env.REPOSITORY_URI}:${env.IMAGE_TAG}"
+                    sh "docker push ${env.REPOSITORY_URI}:latest"
+                }
+            }
+        }
+    }
+}
